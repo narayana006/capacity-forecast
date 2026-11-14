@@ -149,3 +149,64 @@ def test_invalid_settings(kwargs):
         fc.forecast_all(series("x", [1, 2, 3]), 30, **kwargs)
     with pytest.raises(ValueError):
         fc.forecast_all(series("x", [1, 2, 3]), 0)
+
+
+# --- seasonality -------------------------------------------------------------
+
+def seasonal_series(days=10, effects=(0, 10, 0, -10), base=50.0, growth=1.0, limit=100.0):
+    """6-hourly samples from midnight UTC: trend plus a fixed offset per quarter-day."""
+    out = []
+    for k in range(days * 4):
+        t = k / 4.0
+        out.append(Sample("svc", T0 + timedelta(hours=6 * k), base + growth * t + effects[k % 4], limit))
+    return out
+
+
+def test_fit_seasonal_recovers_trend_and_profile():
+    samples = seasonal_series()
+    xs = [(s.time - T0).total_seconds() / 86400 for s in samples]
+    fit = fc.fit_seasonal(xs, [s.used for s in samples], 1.0)
+    assert fit.bins == 4
+    assert fit.slope == pytest.approx(1.0)
+    assert fit.slope_stderr == pytest.approx(0.0, abs=1e-9)
+    assert list(fit.effects) == pytest.approx([0, 10, 0, -10])
+    assert fit.swing == pytest.approx(20.0)
+    assert fit.r_squared == pytest.approx(1.0)
+
+
+def test_seasonal_days_left_is_first_peak_over_limit():
+    # Trend reaches 90 at t=40, so the +10 quarter (06:00-12:00) first touches
+    # 100 at t=40.25. The last sample is at t=9.75, so 30.5 days left.
+    f = one(seasonal_series(), season_days=1.0)
+    assert f.season_days == 1.0
+    assert f.seasonal_swing == pytest.approx(20.0)
+    assert f.days_left == pytest.approx(30.5)
+    assert f.days_earliest == pytest.approx(30.5)
+    assert f.status == fc.AT_RISK
+
+
+def test_seasonality_brings_exhaustion_earlier_than_plain_trend():
+    plain = one(seasonal_series())
+    cyclic = one(seasonal_series(), season_days=1.0)
+    assert plain.season_days is None
+    assert cyclic.days_left < plain.days_left
+
+
+def test_seasonality_falls_back_to_trend_without_two_cycles():
+    f = one(seasonal_series(days=10), season_days=7.0)
+    assert f.season_days is None
+    assert f.seasonal_swing is None
+    assert f.days_left == pytest.approx(one(seasonal_series(days=10)).days_left)
+
+
+def test_fit_seasonal_rejects_bad_input():
+    xs = [i / 4 for i in range(40)]
+    ys = [float(i) for i in range(40)]
+    with pytest.raises(ValueError):
+        fc.fit_seasonal(xs, ys, 0)
+    with pytest.raises(ValueError):
+        fc.fit_seasonal(xs, ys, 6.0)  # under two cycles
+    with pytest.raises(ValueError):
+        fc.fit_seasonal(xs, ys, 0.3)  # one sample per cycle cannot resolve it
+    with pytest.raises(ValueError):
+        fc.forecast_all(seasonal_series(), 60, season_days=-1)

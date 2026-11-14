@@ -51,6 +51,21 @@ def _growth_cell(f: Forecast) -> str:
     return f"{'+' if f.growth_per_day >= 0 else '-'}{_num(abs(f.growth_per_day))}"
 
 
+def _season_note(forecasts: Sequence[Forecast]) -> list[str]:
+    seasonal = [f for f in forecasts if f.season_days is not None]
+    if not seasonal:
+        return []
+    cycle = seasonal[0].season_days
+    fitted = [f for f in forecasts if f.growth_per_day is not None]
+    note = (
+        f"Seasonality: a {cycle:g}-day cycle is modelled for {len(seasonal)} of {len(fitted)} "
+        "resource(s); days left is when a cycle peak first reaches the limit."
+    )
+    if len(seasonal) < len(fitted):
+        note += " The others have too little history for the cycle and use the plain trend."
+    return [note, ""]
+
+
 def count_at_risk(forecasts: Sequence[Forecast]) -> int:
     return sum(1 for f in forecasts if f.status in (EXHAUSTED, AT_RISK))
 
@@ -68,6 +83,7 @@ def to_markdown(
         f"**{count_at_risk(forecasts)} projected to run out within the horizon.**"
         + (f" Showing the top {len(shown)}." if len(shown) < len(forecasts) else ""),
         "",
+        *_season_note(forecasts),
         "| # | Resource | Status | Used / limit | Full | Growth/day | Days left (range) | Runs out |",
         "|---:|---|---|---:|---:|---:|---|---|",
     ]
@@ -111,6 +127,8 @@ def to_json(
                 "growth_per_day_low": _round(f.growth_low, 4),
                 "growth_per_day_high": _round(f.growth_high, 4),
                 "r_squared": _round(f.r_squared, 3),
+                "season_days": f.season_days,
+                "seasonal_swing": _round(f.seasonal_swing, 4),
                 "days_left": _round(f.days_left),
                 "days_left_earliest": _round(f.days_earliest),
                 "days_left_latest": _round(f.days_latest),

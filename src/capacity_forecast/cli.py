@@ -39,6 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="flag resources projected to run out within this time (default: 60d)")
     parser.add_argument("--window", metavar="DURATION",
                         help="fit the trend on only the most recent part of each series, e.g. 7d")
+    parser.add_argument("--season", metavar="DURATION",
+                        help="model a repeating cycle of this length, e.g. 1d or 1w (default: none)")
     parser.add_argument("--confidence", type=float, default=0.95,
                         help="confidence level for the days-left range (default: 0.95)")
     parser.add_argument("--top", type=int, metavar="N", help="show only the N highest-ranked resources")
@@ -71,10 +73,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         horizon = parse_duration(args.horizon)
         window = parse_duration(args.window) if args.window else None
+        season = parse_duration(args.season) if args.season else None
         samples = _load(args)
         if not samples:
             raise ValueError("no usage samples found")
-        forecasts = forecast_all(samples, horizon, args.confidence, window)
+        forecasts = forecast_all(samples, horizon, args.confidence, window, season)
     except (OSError, ValueError, PrometheusError) as exc:
         print(f"capacity-forecast: error: {exc}", file=sys.stderr)
         return 1

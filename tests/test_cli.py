@@ -79,3 +79,21 @@ def test_reads_stdin(monkeypatch, capsys):
 def test_errors_exit_1_with_message(args, message, capsys):
     assert main(args) == 1
     assert message in capsys.readouterr().err
+
+
+def test_season_option_adds_profile_to_json(capsys):
+    assert main(["--input", EXAMPLE, "--season", "1d", "--format", "json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    by_name = {r["resource"]: r for r in data["resources"]}
+    memory = by_name["checkout-api:memory_gb"]
+    assert memory["season_days"] == 1.0
+    # The generator plants a +/-3 GB daily sine; at 6-hourly samples that is a 6 GB swing.
+    assert 4.5 < memory["seasonal_swing"] < 7.5
+    assert by_name["db-primary:disk_gb"]["seasonal_swing"] < 1.5
+
+
+def test_season_markdown_note_and_bad_value(capsys):
+    assert main(["--input", EXAMPLE, "--season", "1d"]) == 0
+    assert "Seasonality: a 1-day cycle is modelled for 7 of 7 resource(s)" in capsys.readouterr().out
+    assert main(["--input", EXAMPLE, "--season", "0"]) == 1
+    assert "duration must be positive" in capsys.readouterr().err
