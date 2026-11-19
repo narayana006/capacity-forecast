@@ -7,6 +7,7 @@ import sys
 from datetime import datetime, timezone
 
 from . import __version__
+from .alerts import to_rules
 from .forecast import forecast_all, parse_duration
 from .loader import read_usage, read_usage_file
 from .prometheus import PrometheusError, fetch_samples
@@ -47,6 +48,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--format", choices=("markdown", "json"), default="markdown",
                         help="output format (default: markdown)")
     parser.add_argument("--output", metavar="FILE", help="write the report here instead of stdout")
+    alerts = parser.add_argument_group("alert rules")
+    alerts.add_argument("--alert-rules", metavar="FILE",
+                        help="also write Prometheus alerting rules derived from the forecast to FILE "
+                             "(needs --usage-query, --limit-query and --resource-label)")
+    alerts.add_argument("--alert-lead", default="14d", metavar="DURATION",
+                        help="fire when this much headroom is left at the forecast growth rate (default: 14d)")
+    alerts.add_argument("--alert-for", default="1h", metavar="DURATION",
+                        help="Prometheus 'for:' duration on each rule (default: 1h)")
     parser.add_argument("--fail-on-risk", action="store_true",
                         help="exit with status 2 if any resource runs out within the horizon")
     return parser
@@ -74,10 +83,20 @@ def main(argv: list[str] | None = None) -> int:
         horizon = parse_duration(args.horizon)
         window = parse_duration(args.window) if args.window else None
         season = parse_duration(args.season) if args.season else None
+        if args.alert_rules:
+            if not args.usage_query or not args.limit_query or not args.resource_label:
+                raise ValueError("--alert-rules needs --usage-query, --limit-query and --resource-label")
+            alert_lead = parse_duration(args.alert_lead)
         samples = _load(args)
         if not samples:
             raise ValueError("no usage samples found")
         forecasts = forecast_all(samples, horizon, args.confidence, window, season)
+        if args.alert_rules:
+            rules, count = to_rules(forecasts, args.usage_query, args.limit_query,
+                                    args.resource_label, alert_lead, args.alert_for)
+            with open(args.alert_rules, "w", encoding="utf-8") as handle:
+                handle.write(rules)
+            print(f"capacity-forecast: wrote {count} alert rule(s) to {args.alert_rules}", file=sys.stderr)
     except (OSError, ValueError, PrometheusError) as exc:
         print(f"capacity-forecast: error: {exc}", file=sys.stderr)
         return 1

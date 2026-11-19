@@ -13,7 +13,7 @@ authors = [{ name = "Narayana Vemburaj" }]
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "pyyaml>=6"]
 
 [project.scripts]
 capacity-forecast = "capacity_forecast.cli:main"
